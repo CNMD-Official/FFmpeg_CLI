@@ -83,7 +83,7 @@ def print_header(title):
 
 
 def input_required(prompt, back_to=None):
-    """Prompt until non-empty input is given. b / back / 返回 to go back."""
+    """Prompt until non-empty input.  b / back / 返回 to go back."""
     hint = f" (输入 b 返回{back_to})" if back_to else " (输入 b 返回上一步)"
     while True:
         val = input(f"  > {prompt}{hint}: ").strip()
@@ -94,15 +94,16 @@ def input_required(prompt, back_to=None):
         print("  ! 此项为必填，请重新输入。")
 
 
-def input_optional(prompt, default=""):
-    val = input(f"  > {prompt} (输入 b 返回上一步): ").strip()
+def input_optional(prompt, default="", back_to=None):
+    hint = f" (输入 b 返回{back_to})" if back_to else " (输入 b 返回上一步)"
+    val = input(f"  > {prompt}{hint}: ").strip()
     if val.lower() in ("b", "back", "返回", "上一步"):
         raise Back()
     return val if val else default
 
 
 def confirm(prompt, back_to=None):
-    """Yes/no confirmation. b / back / 返回 to go back."""
+    """Yes / no.  b / back / 返回 to go back."""
     hint = f" (输入 b 返回{back_to})" if back_to else " (输入 b 返回上一步)"
     while True:
         ans = input(f"  > {prompt}{hint} (y/n): ").strip().lower()
@@ -143,7 +144,7 @@ def format_timestamp(seconds):
 # ── File selection ────────────────────────────────────────────────
 
 def select_file():
-    """Guide user to input a file path. Returns Path, or None = exit."""
+    """Guide user to input a file path.  Returns Path, or None = exit."""
     while True:
         print_header("\U0001f4c2 选取文件")
         print("  支持拖拽文件到此处，或手动输入路径。")
@@ -232,7 +233,7 @@ def select_operation(file_path: Path):
 # ── Time input ────────────────────────────────────────────────────
 
 def parse_time(prompt, back_to=None):
-    """Get a validated time string from user. Raises Back on b."""
+    """Get a validated time string from user.  Raises Back on b."""
     while True:
         try:
             t = input_required(prompt, back_to)
@@ -258,7 +259,8 @@ def get_time_range(first_back=None, second_back=None):
 # ── Output path ───────────────────────────────────────────────────
 
 def get_output_path(input_file: Path, category: str, back_to=None):
-    """Ask user for output filename, format, and directory."""
+    """Ask user for output filename, format, and directory.
+       Returns (out_path, fmt)."""
     print_header("\U0001f4be 输出设置")
 
     fmts = FORMAT_SUGGEST.get(category, FORMAT_SUGGEST["video"])
@@ -274,13 +276,11 @@ def get_output_path(input_file: Path, category: str, back_to=None):
         print(f"  ⚠ 格式 '{fmt}' 可能不受支持，将直接使用。")
 
     default_dir = str(input_file.parent)
-    out_dir = input_optional(f"输出目录 (默认: {default_dir})", default_dir)
+    out_dir = input_optional(f"输出目录 (默认: {default_dir})", default_dir, "输出格式")
     out_path = Path(out_dir).expanduser().resolve() / f"{name}.{fmt}"
 
-    # Auto-create directory if it does not exist
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Warn if output is same as input (FFmpeg -y would corrupt the file)
     if out_path.resolve() == input_file.resolve():
         print("  ⚠ 输出文件与输入文件路径相同！请修改文件名或目录。")
         raise Back()
@@ -317,34 +317,32 @@ def _draw_progress_bar(current, total=None, final=False):
 
 # ── FFmpeg runner ─────────────────────────────────────────────────
 
-def run_ffmpeg(args, description="", total_sec_hint=None):
+def run_ffmpeg(args, description="", total_sec_hint=None, extra_args_preset=None):
     """
     Run ffmpeg with a real-time progress bar.
 
-    Before running, shows the full command and lets the user
-    append custom FFmpeg arguments.
+    Returns (success_bool, extra_args_used_or_None).
 
-    Args:
-        args: ffmpeg positional arguments.
-        description: short label shown during execution.
-        total_sec_hint: if provided (clip/extract-partial), used as the 100 %
-                        mark instead of the input file Duration.
-    Returns True on success.
+    extra_args_preset — if provided, skip the prompt and use these directly;
+                        if None, prompt user before running.
     """
     cmd = [FFMPEG, "-progress", "pipe:"] + args
+    used_extra = extra_args_preset
 
-    # Show command and ask for custom arguments
-    print(f"\n  \U0001f4cb 完整命令:")
-    print(f"    {' '.join(str(a) for a in cmd)}")
-    try:
-        if confirm("是否添加自定义 FFmpeg 参数"):
-            extra = input_required("请输入额外参数\n    示例: -b:a 192k -vf scale=1280:720")
-            extra_args = shlex.split(extra)
-            if extra_args:
-                cmd = cmd + extra_args
-                print(f"    已添加: {' '.join(extra_args)}")
-    except Back:
-        return False
+    if extra_args_preset is not None:
+        cmd += extra_args_preset
+    else:
+        print(f"\n  \U0001f4cb 完整命令:")
+        print(f"    {' '.join(str(a) for a in cmd)}")
+        try:
+            if confirm("是否添加自定义 FFmpeg 参数"):
+                extra = input_required(
+                    "请输入额外参数\n    示例: -b:a 192k -vf scale=1280:720")
+                used_extra = shlex.split(extra)
+                cmd += used_extra
+                print(f"    已添加: {' '.join(used_extra)}")
+        except Back:
+            return False, None
 
     print(f"\n  \U0001f527 {description}...\n")
 
@@ -356,7 +354,7 @@ def run_ffmpeg(args, description="", total_sec_hint=None):
         bufsize=1,
     )
 
-    total_sec = total_sec_hint          # user-provided total (clip/extract)
+    total_sec = total_sec_hint
     current_sec = None
     speed_str = ""
     collected = []
@@ -368,7 +366,6 @@ def run_ffmpeg(args, description="", total_sec_hint=None):
     for line in process.stdout: # type: ignore
         collected.append(line)
 
-        # Parse input-file Duration only if no hint was given
         if total_sec is None:
             m = duration_re.search(line)
             if m:
@@ -387,7 +384,6 @@ def run_ffmpeg(args, description="", total_sec_hint=None):
 
     process.wait()
 
-    # Finalise progress bar
     final_val = current_sec or 0
     total_for_display = total_sec or final_val
     _draw_progress_bar(final_val, total_for_display, final=True)
@@ -410,10 +406,10 @@ def run_ffmpeg(args, description="", total_sec_hint=None):
             last = [l.strip() for l in collected if l.strip()]
             if last and last[-1] not in shown:
                 print(f"     {last[-1]}")
-        return False
+        return False, used_extra
 
     print(f"  ✅ {description}完成！{speed_str}")
-    return True
+    return True, used_extra
 
 
 # ── Operations ────────────────────────────────────────────────────
@@ -423,16 +419,34 @@ def op_format_convert(input_file: Path):
     ext = input_file.suffix.lower()
     category = "video" if ext in VIDEO_EXTS else ("image" if ext in IMAGE_EXTS else "audio")
 
+    last_dir = Path()
+    last_fmt = None
+    last_extra = None
+    settings_saved = False
+
     while True:
+        # ── Output ──
         try:
-            out_path, _ = get_output_path(input_file, category, "操作选择")
+            if settings_saved:
+                name = input_required("输出文件名 (不含扩展名)")
+                out_path = last_dir / f"{name}.{last_fmt}"
+                print(f"    (目录: {last_dir}  格式: {last_fmt})")
+            else:
+                out_path, last_fmt = get_output_path(input_file, category, "操作选择")
+                last_dir = out_path.parent
         except Back:
             return
 
-        success = run_ffmpeg(["-i", str(input_file), "-y", str(out_path)],
-                             description="格式转换")
+        success, extra_used = run_ffmpeg(
+            ["-i", str(input_file), "-y", str(out_path)],
+            description="格式转换",
+            extra_args_preset=last_extra if settings_saved else None,
+        )
         if success:
             print(f"  输出文件: {out_path}")
+
+        if not settings_saved:
+            last_extra = extra_used or []
 
         print()
         try:
@@ -441,9 +455,23 @@ def op_format_convert(input_file: Path):
         except Back:
             return
 
+        if not settings_saved:
+            print()
+            try:
+                if confirm("是否记住本次设置，后续仅需输入文件名"):
+                    settings_saved = True
+                    print("  ✓ 已记住。")
+            except Back:
+                pass
+
 
 def op_extract_audio(input_file: Path):
     """Extract audio from video — full or partial."""
+    last_dir = Path()
+    last_fmt = None
+    last_extra = None
+    settings_saved = False
+
     while True:  # restart from full/partial menu
         while True:
             print_header("\U0001f3b5 提取音频")
@@ -459,7 +487,7 @@ def op_extract_audio(input_file: Path):
             print("  ! 请输入 1 或 2，或输入 b 返回操作选择。")
 
         full = choice == "1"
-        hint = None  # total_sec_hint = None means use input Duration
+        hint = None
 
         while True:
             if not full:
@@ -475,43 +503,71 @@ def op_extract_audio(input_file: Path):
             else:
                 ss_raw = to_raw = None
 
+            # ── Output path ──────────────────────────────────────────
             try:
-                out_path, _ = get_output_path(
-                    input_file, "audio",
-                    "时间选择" if not full else "全部/部分选择",
-                )
+                if settings_saved:
+                    name = input_required("输出文件名 (不含扩展名)")
+                    out_path = last_dir / f"{name}.{last_fmt}"
+                else:
+                    out_path, last_fmt = get_output_path(
+                        input_file, "audio",
+                        "全部/部分选择" if full else "时间选择")
+                    last_dir = out_path.parent
             except Back:
                 if full:
                     break
                 continue
 
-            # Build command
-            args = []
+            # ── Build command: -ss / -to after -i ────────────────────
+            args = ["-i", str(input_file)]
             if ss_raw:
                 args += ["-ss", ss_raw]
-            args += ["-i", str(input_file)]
             if to_raw:
                 args += ["-to", to_raw]
             args += ["-vn", "-y", str(out_path)]
 
-            success = run_ffmpeg(args, description="音频提取", total_sec_hint=hint)
+            success, extra_used = run_ffmpeg(
+                args,
+                description="音频提取",
+                total_sec_hint=hint,
+                extra_args_preset=last_extra if settings_saved else None,
+            )
+            if not settings_saved:
+                last_extra = extra_used or []
             if success:
                 print(f"  输出文件: {out_path}")
 
             if full:
                 return
 
+            # ── Continue? ──
             print()
             try:
                 if not confirm("是否继续提取同一视频的其他音频片段"):
                     return
             except Back:
                 return
+
+            # ── Remember settings (once, after first op) ──
+            if not settings_saved:
+                print()
+                try:
+                    if confirm("是否记住本次设置，后续仅需输入文件名"):
+                        settings_saved = True
+                        print("  ✓ 已记住。")
+                except Back:
+                    pass
+
             print("\n  ── 继续提取同一文件的其他片段 ──")
 
 
 def op_clip_video(input_file: Path):
     """Clip a video segment."""
+    last_dir = Path()
+    last_fmt = None
+    last_extra = None
+    settings_saved = False
+
     while True:
         try:
             print_header("✂ 视频剪辑")
@@ -519,33 +575,70 @@ def op_clip_video(input_file: Path):
         except Back:
             return
 
-        try:
-            out_path, _ = get_output_path(input_file, "video", "时间选择")
-        except Back:
-            continue
-
         dur = time_str_to_seconds(to_raw) - time_str_to_seconds(ss_raw)
         if dur <= 0:
             print("  ! 结束时间必须大于起始时间。\n")
             continue
-        args = ["-ss", ss_raw, "-i", str(input_file), "-to", to_raw,
-                "-c", "copy", "-y", str(out_path)]
 
-        success = run_ffmpeg(args, description="视频剪辑", total_sec_hint=dur)
+        # ── Output path ──────────────────────────────────────────
+        try:
+            if settings_saved:
+                name = input_required("输出文件名 (不含扩展名)")
+                out_path = last_dir / f"{name}.{last_fmt}"
+            else:
+                out_path, last_fmt = get_output_path(input_file, "video", "时间选择")
+                last_dir = out_path.parent
+        except Back:
+            continue
+
+        # ── Build command: -ss after -i ───────────────────────────
+        args = [
+            "-i", str(input_file),
+            "-ss", ss_raw,
+            "-to", to_raw,
+            "-c", "copy",
+            "-y", str(out_path),
+        ]
+
+        success, extra_used = run_ffmpeg(
+            args,
+            description="视频剪辑",
+            total_sec_hint=dur,
+            extra_args_preset=last_extra if settings_saved else None,
+        )
+        if not settings_saved:
+            last_extra = extra_used or []
         if success:
             print(f"  输出文件: {out_path}")
 
+        # ── Continue? ──
         print()
         try:
             if not confirm("是否继续剪辑同一视频的其他片段"):
                 return
         except Back:
             return
+
+        # ── Remember settings (once, after first op) ──
+        if not settings_saved:
+            print()
+            try:
+                if confirm("是否记住本次设置，后续仅需输入文件名"):
+                    settings_saved = True
+                    print("  ✓ 已记住。")
+            except Back:
+                pass
+
         print("\n  ── 继续剪辑同一文件的其他片段 ──")
 
 
 def op_clip_audio(input_file: Path):
     """Clip an audio segment."""
+    last_dir = Path()
+    last_fmt = None
+    last_extra = None
+    settings_saved = False
+
     while True:
         try:
             print_header("✂ 音频剪辑")
@@ -553,28 +646,60 @@ def op_clip_audio(input_file: Path):
         except Back:
             return
 
-        try:
-            out_path, _ = get_output_path(input_file, "audio", "时间选择")
-        except Back:
-            continue
-
         dur = time_str_to_seconds(to_raw) - time_str_to_seconds(ss_raw)
         if dur <= 0:
             print("  ! 结束时间必须大于起始时间。\n")
             continue
-        args = ["-ss", ss_raw, "-i", str(input_file), "-to", to_raw,
-                "-c", "copy", "-y", str(out_path)]
 
-        success = run_ffmpeg(args, description="音频剪辑", total_sec_hint=dur)
+        # ── Output path ──────────────────────────────────────────
+        try:
+            if settings_saved:
+                name = input_required("输出文件名 (不含扩展名)")
+                out_path = last_dir / f"{name}.{last_fmt}"
+            else:
+                out_path, last_fmt = get_output_path(input_file, "audio", "时间选择")
+                last_dir = out_path.parent
+        except Back:
+            continue
+
+        # ── Build command: -ss after -i ───────────────────────────
+        args = [
+            "-i", str(input_file),
+            "-ss", ss_raw,
+            "-to", to_raw,
+            "-c", "copy",
+            "-y", str(out_path),
+        ]
+
+        success, extra_used = run_ffmpeg(
+            args,
+            description="音频剪辑",
+            total_sec_hint=dur,
+            extra_args_preset=last_extra if settings_saved else None,
+        )
+        if not settings_saved:
+            last_extra = extra_used or []
         if success:
             print(f"  输出文件: {out_path}")
 
+        # ── Continue? ──
         print()
         try:
             if not confirm("是否继续剪辑同一音频的其他片段"):
                 return
         except Back:
             return
+
+        # ── Remember settings (once, after first op) ──
+        if not settings_saved:
+            print()
+            try:
+                if confirm("是否记住本次设置，后续仅需输入文件名"):
+                    settings_saved = True
+                    print("  ✓ 已记住。")
+            except Back:
+                pass
+
         print("\n  ── 继续剪辑同一文件的其他片段 ──")
 
 
