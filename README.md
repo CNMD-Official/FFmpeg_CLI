@@ -1,6 +1,9 @@
-# FFmpeg 多媒体处理工具
+# FFmpeg 多媒体处理工具 （AI-Assisted Development）
 
 一个基于 FFmpeg 的交互式命令行多媒体处理工具，支持格式转换、音频提取和视频/音频剪辑。
+
+## 界面展示
+<img width="1734" height="927" alt="image" src="https://github.com/user-attachments/assets/baa6933f-cc7e-4542-a654-0bdaa18162b4" />
 
 ## 功能
 
