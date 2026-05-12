@@ -40,7 +40,7 @@
 ## 使用方法
 
 ```bash
-python main.py
+运行FFmpeg_CLI.exe
 ```
 
 程序启动后，按照交互提示操作：
@@ -59,7 +59,7 @@ python main.py
 
 ```
 FFmpeg_CLI/
-├── main.py       # 主程序入口 (单文件)
+├── main.py       # 主程序入(单文件)
 └── README.md     # 本文件
 ```
 
